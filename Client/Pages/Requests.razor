@@ -1,0 +1,203 @@
+﻿@page "/requests"
+@inject IClientAuthService _authService
+@inject IHttpService _httpService
+@inject NavigationManager _navigationManager
+@inject ISnackbar _snackbar
+
+<MudTable Items="@ApplicationRequests" Bordered="true" Striped="true">
+    <HeaderContent>
+        @if (_authService.User != null && _authService.User.UserRole != UserRole.Student)
+        {
+            <MudTh>Student Name</MudTh>
+        }
+        <MudTh>Course Name</MudTh>
+        <MudTh>Short Description</MudTh>
+        <MudTh>Long Description</MudTh>
+        <MudTh>Files</MudTh>
+        <MudTh>Date</MudTh>
+        <MudTh>Notes</MudTh>
+        @if (_authService.User != null && _authService.User.UserRole == UserRole.Student)
+        {
+            <MudTh>Status</MudTh>
+        }
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        @if (_authService.User != null && _authService.User.UserRole != UserRole.Student)
+        {
+            <MudTd>@context.Student.Name</MudTd>
+        }
+        <MudTd>@context.Course.CourseName</MudTd>
+        <MudTd>@context.ApplicationName</MudTd>
+        <MudTd>@context.ApplicationBody</MudTd>
+        <MudTh>
+            @if (context.FileUrls != null && context.FileUrls.CertificatePath != null)
+            {
+                <a href="/files/{@context.FileUrls.CertificatePath}" target="_blank" download>@context.FileUrls.CertificatePath</a> <br />
+            }
+            @if (context.FileUrls != null && context.FileUrls.SyllabusPath != null)
+            {
+                <a href=@($"/files/{@context.FileUrls.SyllabusPath}") target="_blank" download>@context.FileUrls.SyllabusPath</a> <br />
+            }
+            @if (context.FileUrls != null && context.FileUrls.GradeSheetPath != null)
+            {
+                <a href=@($"/files/{@context.FileUrls.GradeSheetPath}") target="_blank" download>@context.FileUrls.GradeSheetPath</a>
+            }
+        </MudTh>
+        <MudTd>@context.ApplicationDateTime</MudTd>
+        <MudIconButton Style="margin-top:10px" Icon="@Icons.Material.Filled.Info" Color="Color.Primary" @onclick="() => ViewNoteMessage(context.Id)">Note</MudIconButton>
+        @if (_authService.User != null && _authService.User.UserRole != UserRole.Student)
+        {
+            <MudTd>
+                <MudButton Variant="Variant.Filled" ButtonType="MudBlazor.ButtonType.Submit" Color="Color.Primary" @onclick="() => ViewAddNoteDialog(context.Id, true)">Accept</MudButton>
+                <MudButton Variant="Variant.Filled" ButtonType="MudBlazor.ButtonType.Submit" Color="Color.Secondary" @onclick="() => ViewAddNoteDialog(context.Id, false)">Declined</MudButton>
+            </MudTd>
+
+        }
+        else if (_authService.User.UserRole == UserRole.Student)
+        {
+            <MudTh>
+                <MudTh>@context.Status.ToString()</MudTh>
+            </MudTh>
+
+            @if (context.Status == ApplicationStatus.Declined)
+            {
+                <MudTd>
+                    <MudButton Variant="Variant.Filled" ButtonType="MudBlazor.ButtonType.Submit" Color="Color.Primary" OnClick="@(() => _navigationManager.NavigateTo($"/appeal/{context.Id}"))">Appeal</MudButton>
+                </MudTd>
+            }
+        }
+    </RowTemplate>
+    <PagerContent>
+        <MudTablePager />
+    </PagerContent>
+</MudTable>
+
+<MudDialog @bind-IsVisible="IsViewNote">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            @NoteFrom
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        @NoteMessage
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+<MudDialog @bind-IsVisible="IsAddNote">
+    <TitleContent>
+        <MudText Typo="Typo.h6">
+            <MudIcon Icon="@Icons.Material.Filled.Info" Class="mr-3 mb-n1" />
+            Add Note
+        </MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="NoteMessage" Label="Note" Variant="Variant.Text"></MudTextField>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Color="Color.Success" OnClick="AcceptOrDecline">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    private List<CourseApplicationViewModel> ApplicationRequests { get; set; } = new();
+    private int ApplicationId { get; set; }
+    private bool IsAccept { get; set; }
+    private bool IsLoading { get; set; }
+    public string NoteMessage { get; set; }
+    public string NoteFrom { get; set; }
+    public bool IsViewNote { get; set; }
+    public bool IsAddNote { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (_authService.User != null)
+        {
+            try
+            {
+                ApplicationRequests = await _httpService.Get<List<CourseApplicationViewModel>>("/api/application");
+            }
+            catch
+            {
+                ApplicationRequests = new();
+            }
+        }
+        else
+        {
+            _navigationManager.NavigateTo("/");
+        }
+    }
+
+    private void ViewAddNoteDialog(int applicationId, bool status)
+    {
+        IsAddNote = true;
+        ApplicationId = applicationId;
+        IsAccept = status;
+    }
+
+    private string GetAcceptDeclineUrl()
+    {
+        var role = _authService.User.UserRole;
+        if (role == UserRole.Administrator || role == UserRole.DepartmentHead)
+        {
+            return "/api/DepartmentHead/acceptOrDecline";
+        }
+        else
+        {
+            return "/api/Instructor/acceptOrDecline";
+        }
+    }
+
+    private CourseApplicationViewModel GetCourseApplicationViewModel(int id, bool status, string message)
+    {
+        var role = _authService.User.UserRole;
+        var model = new CourseApplicationViewModel()
+        {
+            Id = id
+        };
+        if (role == UserRole.Administrator || role == UserRole.DepartmentHead)
+        {
+            model.Status = status ? ApplicationStatus.ApprovedByAll : ApplicationStatus.Declined;
+        }
+        else
+        {
+            model.Status = status ? ApplicationStatus.ApprovedByInstructor : ApplicationStatus.Declined;
+        }
+        model.NoteMessage = message;
+        return model;
+    }
+
+    private void ViewNoteMessage(int applicationId)
+    {
+        var application = ApplicationRequests.Find(x => x.Id == applicationId);
+        NoteMessage = application.NoteMessage;
+        NoteFrom = application.NoteFrom;
+        IsViewNote = true;
+    }
+
+    private async Task AcceptOrDecline()
+    {
+        IsAddNote = false;
+        try
+        {
+            var url = this.GetAcceptDeclineUrl();
+            var model = this.GetCourseApplicationViewModel(ApplicationId, IsAccept, NoteMessage);
+            await _httpService.Post<object>(url, model);
+            var application = ApplicationRequests.Find(x => x.Id == ApplicationId);
+            _snackbar.Add("Successfully Done", Severity.Success);
+            ApplicationRequests.Remove(application);
+        }
+        catch
+        {
+            _snackbar.Add("Something went wrong! Please try again.", Severity.Error);
+        }
+    }
+
+    void Cancel()
+    {
+        IsViewNote = false;
+    }
+}
